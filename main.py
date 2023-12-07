@@ -2,12 +2,6 @@ import logging
 from telethon.sync import TelegramClient, events
 from config import api_id, api_hash, phone_number, session_name, LOGGING_LEVEL, LOGGING_FORMAT
 import asyncio
-import os
-from dotenv import load_dotenv
-
-pwd = os.getcwd()
-env_file = os.path.join(pwd, ".env")
-load_dotenv(env_file)
 
 # Configure logging
 logging.basicConfig(level=LOGGING_LEVEL, format=LOGGING_FORMAT)
@@ -41,9 +35,9 @@ async def event_handler(client, my_group):
 
 async def main():
     client = TelegramClient(
-        os.getenv('SESSION_NAME'),
-        int(os.getenv('API_ID')),
-        os.getenv('API_HASH'),
+        session_name,
+        api_id,
+        api_hash,
         system_version='4.16.30-vxCUSTOM'
     )
 
