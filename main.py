@@ -1,107 +1,72 @@
-import csv
-import re
-from telethon.sync import TelegramClient
-from telethon.tl.functions.messages import GetDialogsRequest
-from telethon.tl.types import InputPeerEmpty, ChannelForbidden, ChatForbidden
-from config import api_id, api_hash, phone_number, session_name
+import logging
+from telethon.sync import TelegramClient, events
+from config import api_id, api_hash, phone_number, session_name, LOGGING_LEVEL, LOGGING_FORMAT
 import asyncio
+import os
+from dotenv import load_dotenv
 
-cache = {}
+pwd = os.getcwd()
+env_file = os.path.join(pwd, ".env")
+load_dotenv(env_file)
+
+# Configure logging
+logging.basicConfig(level=LOGGING_LEVEL, format=LOGGING_FORMAT)
+# Create logger
+logger = logging.getLogger(__name__)
 
 
-async def get_groups(client):
-    if 'get_groups' in cache:
-        return cache['get_groups']
+async def fwr_message(client, event, my_group):
+    msg = event.message
+    chat = await client.get_entity(event.chat_id)
+    sender = await event.get_sender()
 
-    last_date = None
-    size_chats = 200
-    groups =[]
+    msg_author = f"🧑‍💻 **Author:** https://t.me/{sender.username}"
+    msg_link = f"✍️ **Message:** https://t.me/c/{chat.id}/{msg.id}"
+    msg_chat_link = f"👥 **Chat:** https://t.me/{chat.username}"
+    result_msg = f"{msg.message}\n\n{msg_author}\n{msg_link}\n{msg_chat_link}"
 
-    dialogs = await client(GetDialogsRequest(
-            offset_date=last_date,
-            offset_id=0,
-            offset_peer=InputPeerEmpty(),
-            limit=size_chats,
-            hash=0
-    ))
+    await client.send_message(my_group, result_msg, link_preview=False)
 
-    for chat in dialogs.chats:
+
+async def event_handler(client, my_group):
+    @client.on(events.NewMessage(incoming=True, func=lambda e: not e.is_private))
+    async def handler(event):
         try:
-            if chat.megagroup and type(chat) != ChatForbidden and type(chat) != ChannelForbidden:
-                groups.append(chat)
-        except:
-            continue
-
-    cache['get_groups'] = groups
-    return groups
-
-
-async def parse_group(client):
-    groups = await get_groups(client)
-
-    print('Выберите номер группы из перечня:')
-    i = 0
-    for g in groups:
-        print(f"{str(i)} - {g.title} | Кол-во учатников: {g.participants_count}")
-        i += 1
-
-    g_index = input("Введите нужную цифру: ")
-    target_group = groups[int(g_index)]
-
-    print("Узнаем пользователей...")
-    all_participants = await client.get_participants(target_group.username)
-    print("Парсинг участников группы успешно выполнен.")
-    return all_participants, target_group
-
-
-async def save_group_users_to_csv(client):
-    all_participants, target_group = await parse_group(client)
-    filename = re.sub(r'[^\w_.-]', '_', target_group.title)
-    print(f"Сохраняем данные в файл {filename}.csv ...")
-    with open(f"{filename}.csv", "w", encoding='UTF-8') as f:
-        writer = csv.writer(f, delimiter=",", lineterminator="\n")
-        writer.writerow(['username', 'name', 'group'])
-        for user in all_participants:
-            if user.username:
-                username = user.username
-            else:
-                username = ""
-            if user.first_name:
-                first_name = user.first_name
-            else:
-                first_name = ""
-            if user.last_name:
-                last_name = user.last_name
-            else:
-                last_name = ""
-            name = (first_name + ' ' + last_name).strip()
-            writer.writerow([username, name, target_group.title])
-    print("Данные участников группы сохранены в csv файл.")
+            # For simplicity, let's forward all messages to the specified chat
+            await fwr_message(client, event, my_group)
+            logger.info(f"Forwarded new message to chat {my_group.title}")
+        except Exception as e:
+            logger.error(f"Error handling message: {e}")
 
 
 async def main():
     client = TelegramClient(
-        session_name,
-        api_id,
-        api_hash,
+        os.getenv('SESSION_NAME'),
+        int(os.getenv('API_ID')),
+        os.getenv('API_HASH'),
         system_version='4.16.30-vxCUSTOM'
     )
 
-    await client.start(phone_number)
-    while True:
-        await save_group_users_to_csv(client)
-        answer = input("Хотите продолжить? (y/n): ")
-        if answer.lower() != 'y':
-            break
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            await client.send_code_request(phone_number)
+            await client.sign_in(phone_number, input('Enter the code: '))
 
-    await client.disconnect()
+        logger.info(f'Bot is running. Waiting for messages... ')
 
-if __name__ == "__main__":
+        # Get the group for forwarding messages
+        my_group = await client.get_entity('https://t.me/+Esv8sTKv1a04ZGU6')
+
+        print(f'Работает парсинг сообщений и отправка их в чат "{my_group.title}"')
+        await event_handler(client, my_group)
+
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        raise
+    finally:
+        await client.disconnected
+
+
+if __name__ == '__main__':
     asyncio.run(main())
-
-
-
-
-
-
-
