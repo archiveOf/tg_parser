@@ -1,34 +1,41 @@
 import logging
 from telethon.sync import TelegramClient, events
 from config import api_id, api_hash, phone_number, session_name, LOGGING_LEVEL, LOGGING_FORMAT
+from modules.text_processor import TextProcessor
+from utils import get_keywords_and_channels
 import asyncio
 
-# Configure logging
 logging.basicConfig(level=LOGGING_LEVEL, format=LOGGING_FORMAT)
-# Create logger
 logger = logging.getLogger(__name__)
 
+text_processor = TextProcessor()
 
-async def fwr_message(client, event, my_group):
+
+async def fwr_message(client, event, res_txt, my_group):
     msg = event.message
     chat = await client.get_entity(event.chat_id)
     sender = await event.get_sender()
 
-    msg_author = f"🧑‍💻 **Author:** https://t.me/{sender.username}"
-    msg_link = f"✍️ **Message:** https://t.me/c/{chat.id}/{msg.id}"
-    msg_chat_link = f"👥 **Chat:** https://t.me/{chat.username}"
-    result_msg = f"{msg.message}\n\n{msg_author}\n{msg_link}\n{msg_chat_link}"
+    msg_author = f"🧑‍💻 <b>Author:</b> https://t.me/{sender.username}"
+    msg_link = f"✍️ <b>Message:</b> https://t.me/c/{chat.id}/{msg.id}"
+    msg_chat_link = f"👥 <b>Chat:</b> https://t.me/{chat.username}"
+    result_msg = f"{res_txt}\n\n{msg_author}\n{msg_link}\n{msg_chat_link}"
 
-    await client.send_message(my_group, result_msg, link_preview=False)
+    await client.send_message(my_group, result_msg, link_preview=False, parse_mode='html')
 
 
-async def event_handler(client, my_group):
+async def event_handler(client):
+    destination_channel_id, keywords = await get_keywords_and_channels()
+    my_group = await client.get_entity(destination_channel_id[0])
+
     @client.on(events.NewMessage(incoming=True, func=lambda e: not e.is_private))
     async def handler(event):
         try:
-            # For simplicity, let's forward all messages to the specified chat
-            await fwr_message(client, event, my_group)
-            logger.info(f"Forwarded new message to chat {my_group.title}")
+            original_text = event.message.message
+            res_text = text_processor.get_result(original_text, keywords)
+            if res_text != original_text:
+                await fwr_message(client, event, res_text, my_group)
+                logger.info(f"Forwarded new message to chat {my_group.title}, text: {original_text}")
         except Exception as e:
             logger.error(f"Error handling message: {e}")
 
@@ -48,12 +55,7 @@ async def main():
             await client.sign_in(phone_number, input('Enter the code: '))
 
         logger.info(f'Bot is running. Waiting for messages... ')
-
-        # Get the group for forwarding messages
-        my_group = await client.get_entity('https://t.me/+Esv8sTKv1a04ZGU6')
-
-        print(f'Работает парсинг сообщений и отправка их в чат "{my_group.title}"')
-        await event_handler(client, my_group)
+        await event_handler(client)
 
     except Exception as e:
         logger.error(f"Error: {e}")
